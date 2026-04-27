@@ -773,10 +773,9 @@ def test_best_promotion_discount_picks_highest(channel_USD):
     result = get_best_promotion_discount(price, rules_info, channel_USD)
 
     # then
-    assert result is not None
     rule_id, discount_amount = result
     assert rule_id == rule_big.id
-    assert discount_amount == Money(20, channel_USD.currency_code)
+    assert discount_amount == Money(rule_big.reward_value, channel_USD.currency_code)
 
 
 def test_best_promotion_discount_no_matching_channel(channel_USD, channel_PLN):
@@ -839,8 +838,10 @@ def test_get_product_discount_on_promotion_matching_channel(channel_USD):
 
     # then
     assert rule_id == rule.id
-    price = Money(100, channel_USD.currency_code)
-    assert discount_fn(price) == Money(90, channel_USD.currency_code)
+    base_price = Decimal(100)
+    price = Money(base_price, channel_USD.currency_code)
+    expected = Money(base_price - rule.reward_value, channel_USD.currency_code)
+    assert discount_fn(price) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -994,7 +995,10 @@ def test_prepare_promotion_discount_reason_without_old_sale_id():
     reason = prepare_promotion_discount_reason(promotion)
 
     # then
-    assert reason.startswith("Promotion:")
+    import graphene
+
+    expected_gid = graphene.Node.to_global_id("Promotion", 7)
+    assert reason == f"Promotion: {expected_gid}"
 
 
 def test_get_sale_id_with_old_sale():
