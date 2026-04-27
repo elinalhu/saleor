@@ -466,6 +466,7 @@ def test_voucher_not_assigned_to_channel_raises(channel_USD, channel_PLN):
 def test_get_products_voucher_discount_apply_once_per_order(channel_USD):
     """apply_once_per_order: discount applied only on cheapest product."""
     # given
+    discount_value = Decimal(5)
     voucher = Voucher.objects.create(
         type=VoucherType.SPECIFIC_PRODUCT,
         discount_value_type=DiscountValueType.FIXED,
@@ -475,20 +476,21 @@ def test_get_products_voucher_discount_apply_once_per_order(channel_USD):
     VoucherChannelListing.objects.create(
         voucher=voucher,
         channel=channel_USD,
-        discount=Money(5, channel_USD.currency_code),
+        discount=Money(discount_value, channel_USD.currency_code),
     )
     prices = [Money(10, "USD"), Money(20, "USD"), Money(30, "USD")]
 
     # when
     discount = get_products_voucher_discount(voucher, prices, channel_USD)
 
-    # then — discount applied only to cheapest (10) → 5
-    assert discount == Money(5, "USD")
+    # then — discount applied only to cheapest (10)
+    assert discount == Money(discount_value, "USD")
 
 
 def test_get_products_voucher_discount_all_items(channel_USD):
     """Without apply_once_per_order, discount applied to each item."""
     # given
+    discount_value = Decimal(3)
     voucher = Voucher.objects.create(
         type=VoucherType.SPECIFIC_PRODUCT,
         discount_value_type=DiscountValueType.FIXED,
@@ -498,15 +500,15 @@ def test_get_products_voucher_discount_all_items(channel_USD):
     VoucherChannelListing.objects.create(
         voucher=voucher,
         channel=channel_USD,
-        discount=Money(3, channel_USD.currency_code),
+        discount=Money(discount_value, channel_USD.currency_code),
     )
     prices = [Money(10, "USD"), Money(20, "USD")]
 
     # when
     discount = get_products_voucher_discount(voucher, prices, channel_USD)
 
-    # then — 3 + 3 = 6
-    assert discount == Money(6, "USD")
+    # then — discount_value applied to each of 2 items
+    assert discount == Money(discount_value * len(prices), "USD")
 
 
 def test_get_products_voucher_discount_exceeds_all_prices(channel_USD):
@@ -1154,9 +1156,10 @@ def test_denormalized_voucher_percentage_multi_qty():
         calculate_order_line_discount_amount_from_denormalized_voucher,
     )
 
+    discount_val = Decimal(25)
     total_price = Money(100, "USD")
     voucher_info = VoucherDenormalizedInfo(
-        discount_value=Decimal(25),
+        discount_value=discount_val,
         discount_value_type=DiscountValueType.PERCENTAGE,
         voucher_type=VoucherType.SPECIFIC_PRODUCT,
         reason=None,
@@ -1177,8 +1180,9 @@ def test_denormalized_voucher_percentage_multi_qty():
         line_info, total_price
     )
 
-    # then — 25% of 100 = 25
-    assert discount == Money(25, "USD")
+    # then — 25% of 100
+    expected = total_price.amount * discount_val / 100
+    assert discount == Money(expected, "USD")
 
 
 def test_denormalized_voucher_fixed_multi_qty():
@@ -1189,9 +1193,11 @@ def test_denormalized_voucher_fixed_multi_qty():
         calculate_order_line_discount_amount_from_denormalized_voucher,
     )
 
+    discount_val = Decimal(15)
+    quantity = 4
     total_price = Money(100, "USD")
     voucher_info = VoucherDenormalizedInfo(
-        discount_value=Decimal(15),
+        discount_value=discount_val,
         discount_value_type=DiscountValueType.FIXED,
         voucher_type=VoucherType.SPECIFIC_PRODUCT,
         reason=None,
@@ -1201,7 +1207,7 @@ def test_denormalized_voucher_fixed_multi_qty():
     )
 
     line = MagicMock()
-    line.quantity = 4
+    line.quantity = quantity
 
     line_info = MagicMock()
     line_info.voucher_denormalized_info = voucher_info
@@ -1212,8 +1218,8 @@ def test_denormalized_voucher_fixed_multi_qty():
         line_info, total_price
     )
 
-    # then — unit_price = 100/4 = 25, discount per unit = 15, total = 15*4 = 60
-    assert discount == Money(60, "USD")
+    # then — discount per unit * quantity
+    assert discount == Money(discount_val * quantity, "USD")
 
 
 def test_denormalized_voucher_fixed_exceeds_unit_price():
@@ -1259,9 +1265,11 @@ def test_denormalized_voucher_once_per_order():
         calculate_order_line_discount_amount_from_denormalized_voucher,
     )
 
+    discount_val = Decimal(10)
+    quantity = 3
     total_price = Money(90, "USD")
     voucher_info = VoucherDenormalizedInfo(
-        discount_value=Decimal(10),
+        discount_value=discount_val,
         discount_value_type=DiscountValueType.FIXED,
         voucher_type=VoucherType.SPECIFIC_PRODUCT,
         reason=None,
@@ -1271,7 +1279,7 @@ def test_denormalized_voucher_once_per_order():
     )
 
     line = MagicMock()
-    line.quantity = 3
+    line.quantity = quantity
 
     line_info = MagicMock()
     line_info.voucher_denormalized_info = voucher_info
@@ -1282,8 +1290,9 @@ def test_denormalized_voucher_once_per_order():
         line_info, total_price
     )
 
-    # then — unit_price = 90/3 = 30, discount = min(10, 30) = 10
-    assert discount == Money(10, "USD")
+    # then — unit_price = 90/3 = 30, discount = min(discount_val, unit_price)
+    unit_price = total_price.amount / quantity
+    assert discount == Money(min(discount_val, unit_price), "USD")
 
 
 def test_denormalized_voucher_once_per_order_percentage():
@@ -1294,9 +1303,11 @@ def test_denormalized_voucher_once_per_order_percentage():
         calculate_order_line_discount_amount_from_denormalized_voucher,
     )
 
+    discount_val = Decimal(50)
+    quantity = 3
     total_price = Money(60, "USD")
     voucher_info = VoucherDenormalizedInfo(
-        discount_value=Decimal(50),
+        discount_value=discount_val,
         discount_value_type=DiscountValueType.PERCENTAGE,
         voucher_type=VoucherType.SPECIFIC_PRODUCT,
         reason=None,
@@ -1306,7 +1317,7 @@ def test_denormalized_voucher_once_per_order_percentage():
     )
 
     line = MagicMock()
-    line.quantity = 3
+    line.quantity = quantity
 
     line_info = MagicMock()
     line_info.voucher_denormalized_info = voucher_info
@@ -1317,8 +1328,10 @@ def test_denormalized_voucher_once_per_order_percentage():
         line_info, total_price
     )
 
-    # then — unit_price = 60/3 = 20, 50% of 20 = 10, discount = min(10, 20) = 10
-    assert discount == Money(10, "USD")
+    # then — unit_price = 60/3 = 20, 50% of 20 = 10
+    unit_price = total_price.amount / quantity
+    expected = unit_price * discount_val / 100
+    assert discount == Money(min(expected, unit_price), "USD")
 
 
 def test_denormalized_voucher_no_info():
